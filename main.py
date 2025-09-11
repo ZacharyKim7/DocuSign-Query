@@ -3,7 +3,7 @@
 
 # requirements: pyjwt, requests, docusign-esign, python-dotenv
 import os, base64
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import dotenv
 
 from docusign_esign import ApiClient
