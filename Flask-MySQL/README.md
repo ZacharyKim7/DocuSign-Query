@@ -1,18 +1,18 @@
 # DocuSign Flask API Integration
 
 A Python Flask API that integrates with DocuSign to:
-- Receive real-time envelope updates via DocuSign Connect webhooks
-- Pull envelope data from the DocuSign API
-- Store envelope information in a MySQL database
+- Pull envelope data from the DocuSign API using `listStatusChanges`
+- Store envelope information in a MySQL database with incremental sync tracking
 - Provide REST endpoints to query envelope data
+- Support both manual and automated periodic syncing
 
 ## Features
 
-- **Real-time Updates**: DocuSign Connect webhook endpoint for immediate envelope status updates
-- **Bulk Sync**: Pull and sync envelopes from DocuSign API
-- **Database Storage**: MySQL database with envelope and recipient tracking
+- **Incremental Sync**: Efficient syncing using DocuSign's `listStatusChanges` API with last sync date tracking
+- **Manual & Automated Sync**: On-demand sync via API or automated periodic sync script
+- **Database Storage**: MySQL database with envelope, recipient, and sync tracking
 - **REST API**: Query endpoints with filtering, stats, and detailed envelope information
-- **Security**: HMAC signature verification for webhooks
+- **Sync History**: Track sync history, status, and error logging
 - **Custom Status Mapping**: Application-specific status derived from DocuSign statuses
 
 ## Quick Start
@@ -84,22 +84,34 @@ The API will be available at `http://localhost:5000`
 ### Data Synchronization
 
 - **POST /sync/envelopes** - Pull envelopes from DocuSign API
-  - Body: `{"days_back": 30}` (optional, defaults to 30 days)
-
-### Webhooks
-
-- **POST /docusign/webhook** - DocuSign Connect webhook endpoint
-  - Accepts XML payloads from DocuSign Connect
-  - Verifies HMAC signature if configured
+  - Body options:
+    - `{}` - Incremental sync (default, syncs from last successful sync date)
+    - `{"days_back": 7}` - Sync from specific days back
+    - `{"force_full_sync": true}` - Full sync (last 30 days)
+- **GET /sync/status** - Get sync status and history
 
 ## Example Usage
 
 ### Sync Envelopes from DocuSign
 
 ```bash
+# Incremental sync (recommended for regular use)
+curl -X POST http://localhost:5000/sync/envelopes \
+  -H "Content-Type: application/json" \
+  -d '{}'
+
+# Sync specific days back
 curl -X POST http://localhost:5000/sync/envelopes \
   -H "Content-Type: application/json" \
   -d '{"days_back": 7}'
+
+# Force full sync
+curl -X POST http://localhost:5000/sync/envelopes \
+  -H "Content-Type: application/json" \
+  -d '{"force_full_sync": true}'
+
+# Check sync status
+curl http://localhost:5000/sync/status
 ```
 
 ### Query Envelopes
@@ -142,6 +154,15 @@ curl http://localhost:5000/envelopes/stats
 - `recipient_status`: Recipient-specific status
 - `raw`: Full recipient JSON data
 
+### Sync Logs Table
+- `id`: Auto-increment primary key
+- `sync_type`: Type of sync (envelope_sync)
+- `last_sync_date`: Date of the sync operation
+- `envelopes_synced`: Number of envelopes processed
+- `sync_status`: success, error, or partial
+- `error_message`: Error details if sync failed
+- `created_at`: When the sync log was created
+
 ## Application Status Mapping
 
 The system maps DocuSign statuses to application-specific statuses:
@@ -154,14 +175,28 @@ The system maps DocuSign statuses to application-specific statuses:
 - **Declined**: Envelope declined by recipient
 - **Cancelled**: Envelope voided
 
-## DocuSign Connect Configuration
+## Periodic Sync Setup
 
-In your DocuSign Connect configuration:
+For automated syncing, you can use the provided `periodic_sync.py` script:
 
-1. **Webhook URL**: `https://your-domain.com/docusign/webhook`
-2. **Include Data**: Envelope status, recipient status, custom fields
-3. **Events**: All envelope and recipient events
-4. **HMAC**: Configure HMAC key for security (recommended)
+```bash
+# Run incremental sync
+python periodic_sync.py
+
+# Check sync status
+python periodic_sync.py status
+
+# Set up as a cron job (Linux/Mac)
+# Run every hour
+0 * * * * cd /path/to/Flask-MySQL && python periodic_sync.py
+
+# Or use Windows Task Scheduler on Windows
+```
+
+The script will:
+- Perform incremental sync based on the last successful sync date
+- Log results with timestamps
+- Exit with appropriate status codes for monitoring
 
 ## Testing
 
@@ -176,10 +211,11 @@ This will test all API endpoints and verify the integration is working correctly
 ## Security Considerations
 
 - Use HTTPS in production
-- Configure HMAC signature verification for webhooks
 - Secure your DocuSign RSA private key
 - Use environment variables for sensitive configuration
 - Implement proper authentication/authorization for API endpoints
+- Consider rate limiting for sync endpoints
+- Monitor sync logs for unusual activity
 
 ## Dependencies
 
@@ -195,9 +231,10 @@ This will test all API endpoints and verify the integration is working correctly
 ```
 Flask-MySQL/
 ├── app.py                 # Main Flask application
-├── models.py             # Database models
+├── models.py             # Database models (Envelope, Recipient, SyncLog)
 ├── map.py                # Data mapping functions
-├── docusign_client.py    # DocuSign API client
+├── docusign_client.py    # DocuSign API client with listStatusChanges
+├── periodic_sync.py      # Automated sync script for cron/scheduler
 ├── test_integration.py   # Integration tests
 ├── requirements.txt      # Python dependencies
 ├── .env.example         # Environment configuration template

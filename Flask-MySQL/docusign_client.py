@@ -57,16 +57,15 @@ def docusign_jwt_login(
     
     return api_client, account_id, access_token
 
-def fetch_envelopes(api_client: ApiClient, account_id: str, days_back: int = 30) -> list:
-    """Fetch envelopes from DocuSign API with detailed information."""
+def fetch_envelopes_since(api_client: ApiClient, account_id: str, since_date: str) -> list:
+    """Fetch envelopes changed since the given date using listStatusChanges."""
     envelopes_api = EnvelopesApi(api_client)
-    from_date = (datetime.now(timezone.utc) - timedelta(days=days_back)).strftime("%Y-%m-%d")
     
     try:
-        # Get list of envelopes
+        # Use listStatusChanges to get envelopes changed since the given date
         results = envelopes_api.list_status_changes(
             account_id, 
-            from_date=from_date,
+            from_date=since_date,
             include="recipients,custom_fields"
         )
         
@@ -113,7 +112,12 @@ def fetch_envelopes(api_client: ApiClient, account_id: str, days_back: int = 30)
         return envelope_list
     
     except ApiException as e:
-        raise RuntimeError(f"fetch_envelopes failed: {e}") from e
+        raise RuntimeError(f"fetch_envelopes_since failed: {e}") from e
+
+def fetch_envelopes(api_client: ApiClient, account_id: str, days_back: int = 30) -> list:
+    """Fetch envelopes from the last N days (backward compatibility)."""
+    from_date = (datetime.now(timezone.utc) - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    return fetch_envelopes_since(api_client, account_id, from_date)
 
 def get_docusign_client():
     """Initialize DocuSign client from environment variables."""

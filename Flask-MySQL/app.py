@@ -1,13 +1,12 @@
 # app.py
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from sqlalchemy import create_engine, select, and_
 from sqlalchemy.orm import sessionmaker
-from models import Base, Envelope
+from sqlalchemy.engine import URL
+from models import Base, Envelope, SyncLog
 from map import upsert_envelope
-from docusign_client import get_docusign_client, fetch_envelopes
-import json
-import hmac
-import hashlib
+from docusign_client import get_docusign_client, fetch_envelopes, fetch_envelopes_since
+from datetime import datetime, timedelta
 import os
 
 app = Flask(__name__)
@@ -16,11 +15,16 @@ app = Flask(__name__)
 from dotenv import load_dotenv
 load_dotenv()
 
+# config.py or wherever you build the URL
 # Database configuration
 database_url = os.getenv("DATABASE_URL", "mysql+pymysql://user:pass@localhost/docusign_db?charset=utf8mb4")
 engine = create_engine(database_url, pool_pre_ping=True)
 Session = sessionmaker(bind=engine)
 Base.metadata.create_all(engine)
+
+@app.route('/')
+def index():
+    return render_template('index.html')
 
 @app.get("/envelopes")
 def list_envelopes():
@@ -104,121 +108,124 @@ def envelope_stats():
             "by_app_status": {row.app_status: row.count for row in app_status_counts}
         })
 
-@app.post("/docusign/webhook")
-def docusign_webhook():
-    """Handle DocuSign Connect webhook notifications."""
-    # Verify the webhook signature if HMAC key is configured
-    hmac_key = os.getenv("DOCUSIGN_WEBHOOK_HMAC_KEY")
-    if hmac_key:
-        signature = request.headers.get("X-DocuSign-Signature-1")
-        if not signature or not verify_webhook_signature(request.data, signature, hmac_key):
-            return jsonify({"error": "Invalid signature"}), 401
-    
-    try:
-        # Parse the XML payload from DocuSign Connect
-        envelope_data = parse_docusign_xml(request.data)
-        
-        # Store/update the envelope in the database
-        with Session() as session:
-            upsert_envelope(session, envelope_data)
-            session.commit()
-        
-        return jsonify({"status": "success"}), 200
-    
-    except Exception as e:
-        print(f"Webhook error: {e}")
-        return jsonify({"error": "Processing failed"}), 500
-
-def verify_webhook_signature(payload: bytes, signature: str, key: str) -> bool:
-    """Verify DocuSign webhook HMAC signature."""
-    expected = hmac.new(
-        key.encode('utf-8'),
-        payload,
-        hashlib.sha256
-    ).hexdigest()
-    return hmac.compare_digest(signature, expected)
-
-def parse_docusign_xml(xml_data: bytes) -> dict:
-    """Parse DocuSign Connect XML payload into envelope data dict."""
-    import xml.etree.ElementTree as ET
-    
-    root = ET.fromstring(xml_data)
-    
-    # Extract envelope data from XML
-    envelope_status = root.find('.//EnvelopeStatus')
-    if envelope_status is None:
-        raise ValueError("No EnvelopeStatus found in XML")
-    
-    envelope_data = {
-        "envelopeId": envelope_status.findtext('EnvelopeID'),
-        "emailSubject": envelope_status.findtext('Subject'),
-        "status": envelope_status.findtext('Status'),
-        "createdDateTime": envelope_status.findtext('Created'),
-        "sentDateTime": envelope_status.findtext('Sent'),
-        "deliveredDateTime": envelope_status.findtext('Delivered'),
-        "completedDateTime": envelope_status.findtext('Completed'),
-    }
-    
-    # Extract sender info
-    sender_elem = envelope_status.find('Sender')
-    if sender_elem is not None:
-        envelope_data["sender"] = {
-            "email": sender_elem.findtext('Email')
-        }
-    
-    # Extract custom fields
-    custom_fields = envelope_status.find('CustomFields')
-    if custom_fields is not None:
-        text_custom_fields = []
-        for field in custom_fields.findall('CustomField'):
-            text_custom_fields.append({
-                "name": field.findtext('Name'),
-                "value": field.findtext('Value')
-            })
-        envelope_data["customFields"] = {"textCustomFields": text_custom_fields}
-    
-    # Extract recipients
-    recipients_elem = envelope_status.find('Recipients')
-    if recipients_elem is not None:
-        signers = []
-        for recipient in recipients_elem.findall('Recipient'):
-            signers.append({
-                "email": recipient.findtext('Email'),
-                "name": recipient.findtext('UserName'),
-                "status": recipient.findtext('Status'),
-                "routingOrder": recipient.findtext('RoutingOrder'),
-                "roleName": recipient.findtext('RoleName')
-            })
-        envelope_data["recipients"] = {"signers": signers}
-    
-    return envelope_data
 
 @app.post("/sync/envelopes")
 def sync_envelopes():
     """Pull envelopes from DocuSign API and store them in the database."""
-    days_back = request.json.get("days_back", 30) if request.is_json else 30
+    request_data = request.json if request.is_json else {}
+    days_back = request_data.get("days_back")
+    force_full_sync = request_data.get("force_full_sync", False)
     
     try:
         # Get DocuSign client
         api_client, account_id, _ = get_docusign_client()
         
-        # Fetch envelopes from DocuSign
-        envelopes = fetch_envelopes(api_client, account_id, days_back)
-        
-        # Store envelopes in database
         with Session() as session:
+            # Determine sync date
+            if force_full_sync or days_back:
+                # Full sync or specific days back
+                if days_back:
+                    from_date = (datetime.utcnow() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+                    message_suffix = f"from the last {days_back} days"
+                else:
+                    from_date = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
+                    message_suffix = "from the last 30 days (full sync)"
+                envelopes = fetch_envelopes_since(api_client, account_id, from_date)
+            else:
+                # Incremental sync based on last sync date
+                last_sync = session.execute(
+                    select(SyncLog)
+                    .where(SyncLog.sync_type == "envelope_sync")
+                    .where(SyncLog.sync_status == "success")
+                    .order_by(SyncLog.last_sync_date.desc())
+                    .limit(1)
+                ).scalar_one_or_none()
+                
+                if last_sync:
+                    from_date = last_sync.last_sync_date.strftime("%Y-%m-%d")
+                    message_suffix = f"since {from_date} (incremental sync)"
+                else:
+                    # First time sync - get last 30 days
+                    from_date = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
+                    message_suffix = "from the last 30 days (initial sync)"
+                
+                envelopes = fetch_envelopes_since(api_client, account_id, from_date)
+            
+            # Store envelopes in database
             for envelope_data in envelopes:
                 upsert_envelope(session, envelope_data)
+            
+            # Record sync log
+            sync_log = SyncLog(
+                sync_type="envelope_sync",
+                last_sync_date=datetime.utcnow(),
+                envelopes_synced=len(envelopes),
+                sync_status="success"
+            )
+            session.add(sync_log)
             session.commit()
         
         return jsonify({
             "status": "success",
             "synced_count": len(envelopes),
-            "message": f"Synced {len(envelopes)} envelopes from the last {days_back} days"
+            "message": f"Synced {len(envelopes)} envelopes {message_suffix}",
+            "sync_date": sync_log.last_sync_date.isoformat()
         }), 200
     
     except Exception as e:
+        # Record failed sync
+        try:
+            with Session() as session:
+                sync_log = SyncLog(
+                    sync_type="envelope_sync",
+                    last_sync_date=datetime.utcnow(),
+                    envelopes_synced=0,
+                    sync_status="error",
+                    error_message=str(e)[:500]
+                )
+                session.add(sync_log)
+                session.commit()
+        except:
+            pass  # Don't fail the response if we can't log the error
+        
         return jsonify({"error": str(e)}), 500
 
+@app.get("/sync/status")
+def sync_status():
+    """Get sync status and history."""
+    with Session() as session:
+        # Get last sync
+        last_sync = session.execute(
+            select(SyncLog)
+            .where(SyncLog.sync_type == "envelope_sync")
+            .order_by(SyncLog.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        
+        # Get recent sync history
+        recent_syncs = session.execute(
+            select(SyncLog)
+            .where(SyncLog.sync_type == "envelope_sync")
+            .order_by(SyncLog.created_at.desc())
+            .limit(10)
+        ).scalars().all()
+        
+        return jsonify({
+            "last_sync": {
+                "date": last_sync.last_sync_date.isoformat() if last_sync else None,
+                "status": last_sync.sync_status if last_sync else None,
+                "envelopes_synced": last_sync.envelopes_synced if last_sync else 0,
+                "error_message": last_sync.error_message if last_sync else None
+            } if last_sync else None,
+            "recent_syncs": [{
+                "date": sync.last_sync_date.isoformat(),
+                "status": sync.sync_status,
+                "envelopes_synced": sync.envelopes_synced,
+                "created_at": sync.created_at.isoformat(),
+                "error_message": sync.error_message
+            } for sync in recent_syncs]
+        })
+
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(host="127.0.0.1", port=5000, debug=True)
+

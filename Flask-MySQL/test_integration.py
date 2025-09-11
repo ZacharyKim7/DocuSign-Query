@@ -8,7 +8,7 @@ import sys
 import os
 from dotenv import load_dotenv
 
-def test_api_endpoints(base_url="http://localhost:5000"):
+def test_api_endpoints(base_url="http://127.0.0.1:5000"):
     """Test the Flask API endpoints."""
     print("Testing DocuSign Flask API Integration...")
     
@@ -54,34 +54,34 @@ def test_api_endpoints(base_url="http://localhost:5000"):
     except Exception as e:
         print(f"   Error: {e}")
     
-    # Test 4: Test webhook endpoint (mock request)
-    print("\n4. Testing POST /docusign/webhook")
-    mock_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
-    <DocuSignEnvelopeInformation>
-        <EnvelopeStatus>
-            <EnvelopeID>test-envelope-id</EnvelopeID>
-            <Subject>Test Envelope</Subject>
-            <Status>sent</Status>
-            <Created>2024-01-01T12:00:00Z</Created>
-            <Sent>2024-01-01T12:01:00Z</Sent>
-            <Recipients>
-                <Recipient>
-                    <Email>test@example.com</Email>
-                    <UserName>Test User</UserName>
-                    <Status>sent</Status>
-                    <RoutingOrder>1</RoutingOrder>
-                </Recipient>
-            </Recipients>
-        </EnvelopeStatus>
-    </DocuSignEnvelopeInformation>"""
-    
+    # Test 4: Test sync status endpoint
+    print("\n4. Testing GET /sync/status")
     try:
-        response = requests.post(f"{base_url}/docusign/webhook", 
-                               data=mock_xml,
-                               headers={"Content-Type": "application/xml"})
+        response = requests.get(f"{base_url}/sync/status")
         print(f"   Status: {response.status_code}")
         if response.status_code == 200:
-            print("   Webhook processed successfully")
+            data = response.json()
+            last_sync = data.get("last_sync")
+            if last_sync:
+                print(f"   Last sync: {last_sync.get('date')} ({last_sync.get('status')})")
+                print(f"   Envelopes synced: {last_sync.get('envelopes_synced', 0)}")
+            else:
+                print("   No previous syncs found")
+        else:
+            print(f"   Error: {response.text}")
+    except Exception as e:
+        print(f"   Error: {e}")
+    
+    # Test 5: Test incremental sync (no parameters = incremental)
+    print("\n5. Testing POST /sync/envelopes (incremental)")
+    try:
+        response = requests.post(f"{base_url}/sync/envelopes", 
+                               json={})  # Empty payload = incremental sync
+        print(f"   Status: {response.status_code}")
+        if response.status_code == 200:
+            data = response.json()
+            print(f"   Sync result: {data.get('message', 'Success')}")
+            print(f"   Synced count: {data.get('synced_count', 0)}")
         else:
             print(f"   Error: {response.text}")
     except Exception as e:

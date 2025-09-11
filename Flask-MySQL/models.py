@@ -38,3 +38,13 @@ class Recipient(Base):
     raw = Column(JSON)                               # optional: full recipient JSON
 
     envelope = relationship("Envelope", back_populates="recipients")
+
+class SyncLog(Base):
+    __tablename__ = "sync_logs"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    sync_type = Column(String(50), default="envelope_sync")  # Allow different sync types
+    last_sync_date = Column(DateTime, default=datetime.utcnow)
+    envelopes_synced = Column(Integer, default=0)
+    sync_status = Column(String(20), default="success")  # success, error, partial
+    error_message = Column(String(500))
+    created_at = Column(DateTime, default=datetime.utcnow)
