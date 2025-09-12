@@ -6,7 +6,7 @@ from sqlalchemy.engine import URL
 from models import Base, Envelope, SyncLog
 from map import upsert_envelope
 from docusign_client import get_docusign_client, fetch_envelopes, fetch_envelopes_since
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 
 app = Flask(__name__)
@@ -125,10 +125,10 @@ def sync_envelopes():
             if force_full_sync or days_back:
                 # Full sync or specific days back
                 if days_back:
-                    from_date = (datetime.utcnow() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+                    from_date = (datetime.now(timezone.utc) - timedelta(days=days_back)).strftime("%Y-%m-%d")
                     message_suffix = f"from the last {days_back} days"
                 else:
-                    from_date = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
+                    from_date = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
                     message_suffix = "from the last 30 days (full sync)"
                 envelopes = fetch_envelopes_since(api_client, account_id, from_date)
             else:
@@ -146,7 +146,7 @@ def sync_envelopes():
                     message_suffix = f"since {from_date} (incremental sync)"
                 else:
                     # First time sync - get last 30 days
-                    from_date = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
+                    from_date = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
                     message_suffix = "from the last 30 days (initial sync)"
                 
                 envelopes = fetch_envelopes_since(api_client, account_id, from_date)
@@ -156,9 +156,10 @@ def sync_envelopes():
                 upsert_envelope(session, envelope_data)
             
             # Record sync log
+            sync_date = datetime.now(timezone.utc)
             sync_log = SyncLog(
                 sync_type="envelope_sync",
-                last_sync_date=datetime.utcnow(),
+                last_sync_date=sync_date,
                 envelopes_synced=len(envelopes),
                 sync_status="success"
             )
@@ -169,7 +170,7 @@ def sync_envelopes():
             "status": "success",
             "synced_count": len(envelopes),
             "message": f"Synced {len(envelopes)} envelopes {message_suffix}",
-            "sync_date": sync_log.last_sync_date.isoformat()
+            "sync_date": sync_date.isoformat()
         }), 200
     
     except Exception as e:
@@ -178,7 +179,7 @@ def sync_envelopes():
             with Session() as session:
                 sync_log = SyncLog(
                     sync_type="envelope_sync",
-                    last_sync_date=datetime.utcnow(),
+                    last_sync_date=datetime.now(timezone.utc),
                     envelopes_synced=0,
                     sync_status="error",
                     error_message=str(e)[:500]
