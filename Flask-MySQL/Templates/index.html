@@ -1,7 +1,333 @@
 <!DOCTYPE html>
 <html>
-   <head>
-      <title>Index Page</title>
-   </head>
-   <body>Hello World</body>
+<head>
+    <title>DocuSign Envelope Query</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .header {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .search-form {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .form-group {
+            display: inline-block;
+            margin-right: 15px;
+            margin-bottom: 10px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .form-group select, .form-group input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            min-width: 150px;
+        }
+        .search-btn {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+        .search-btn:hover {
+            background-color: #0056b3;
+        }
+        .results-section {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .envelope-card {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+            background-color: #fafafa;
+        }
+        .envelope-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .envelope-id {
+            font-family: monospace;
+            color: #666;
+            font-size: 0.9em;
+        }
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        .status-sent { background-color: #e3f2fd; color: #1976d2; }
+        .status-delivered { background-color: #fff3e0; color: #f57c00; }
+        .status-completed { background-color: #e8f5e8; color: #388e3c; }
+        .status-created { background-color: #f3e5f5; color: #7b1fa2; }
+        .status-declined { background-color: #ffebee; color: #d32f2f; }
+        .status-voided { background-color: #f5f5f5; color: #616161; }
+        .envelope-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .detail-item {
+            font-size: 0.9em;
+        }
+        .detail-label {
+            font-weight: bold;
+            color: #555;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        .error {
+            background-color: #ffebee;
+            color: #c62828;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        .stats-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .stat-label {
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>DocuSign Envelope Query</h1>
+        <p>Search and view DocuSign envelopes from your database</p>
+    </div>
+
+    <div class="stats-section" id="stats">
+        <!-- Stats will be loaded here -->
+    </div>
+
+    <div class="search-form">
+        <h3>Search Envelopes</h3>
+        <form id="searchForm">
+            <div class="form-group">
+                <label for="status">DocuSign Status:</label>
+                <select id="status" name="status">
+                    <option value="">All Statuses</option>
+                    <option value="created">Created</option>
+                    <option value="sent">Sent</option>
+                    <option value="delivered">Delivered</option>
+                    <option value="completed">Completed</option>
+                    <option value="declined">Declined</option>
+                    <option value="voided">Voided</option>
+                    <option value="processing">Processing</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="app_status">App Status:</label>
+                <select id="app_status" name="app_status">
+                    <option value="">All App Statuses</option>
+                    <option value="Awaiting Customer">Awaiting Customer</option>
+                    <option value="In Review">In Review</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Cancelled">Cancelled</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="deal">Deal Name:</label>
+                <input type="text" id="deal" name="deal" placeholder="Enter deal name">
+            </div>
+
+            <button type="submit" class="search-btn">Search Envelopes</button>
+        </form>
+    </div>
+
+    <div class="results-section">
+        <h3>Results</h3>
+        <div id="results">
+            <p class="loading">Click "Search Envelopes" to view results</p>
+        </div>
+    </div>
+
+    <script>
+        let currentEnvelopes = [];
+
+        // Load stats on page load
+        window.onload = function() {
+            loadStats();
+        };
+
+        function loadStats() {
+            fetch('/envelopes/stats')
+                .then(response => response.json())
+                .then(data => {
+                    const statsDiv = document.getElementById('stats');
+                    
+                    let statsHtml = `
+                        <div class="stat-card">
+                            <div class="stat-number">${data.total_envelopes}</div>
+                            <div class="stat-label">Total Envelopes</div>
+                        </div>
+                    `;
+
+                    // Add status breakdown
+                    if (data.by_status) {
+                        Object.entries(data.by_status).forEach(([status, count]) => {
+                            statsHtml += `
+                                <div class="stat-card">
+                                    <div class="stat-number">${count}</div>
+                                    <div class="stat-label">${status.charAt(0).toUpperCase() + status.slice(1)}</div>
+                                </div>
+                            `;
+                        });
+                    }
+
+                    statsDiv.innerHTML = statsHtml;
+                })
+                .catch(error => {
+                    console.error('Error loading stats:', error);
+                });
+        }
+
+        document.getElementById('searchForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const params = new URLSearchParams();
+            
+            for (let [key, value] of formData.entries()) {
+                if (value.trim()) {
+                    params.append(key, value.trim());
+                }
+            }
+            
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<p class="loading">Loading envelopes...</p>';
+            
+            fetch(`/envelopes?${params.toString()}`)
+                .then(response => response.json())
+                .then(data => {
+                    currentEnvelopes = data;
+                    displayResults(data);
+                })
+                .catch(error => {
+                    resultsDiv.innerHTML = `<div class="error">Error loading envelopes: ${error.message}</div>`;
+                });
+        });
+
+        function displayResults(envelopes) {
+            const resultsDiv = document.getElementById('results');
+            
+            if (!envelopes || envelopes.length === 0) {
+                resultsDiv.innerHTML = '<p>No envelopes found matching your criteria.</p>';
+                return;
+            }
+
+            let html = `<p><strong>Found ${envelopes.length} envelope(s)</strong></p>`;
+            
+            envelopes.forEach(envelope => {
+                const statusClass = `status-${envelope.status || 'unknown'}`;
+                
+                html += `
+                    <div class="envelope-card">
+                        <div class="envelope-header">
+                            <div>
+                                <h4>${envelope.subject || 'No Subject'}</h4>
+                                <div class="envelope-id">ID: ${envelope.envelopeId}</div>
+                            </div>
+                            <div>
+                                <span class="status-badge ${statusClass}">${envelope.status || 'Unknown'}</span>
+                                ${envelope.app_status ? `<span class="status-badge" style="margin-left: 5px; background-color: #f0f0f0; color: #333;">${envelope.app_status}</span>` : ''}
+                            </div>
+                        </div>
+                        <div class="envelope-details">
+                            ${envelope.deal_name ? `
+                                <div class="detail-item">
+                                    <span class="detail-label">Deal:</span> ${envelope.deal_name}
+                                </div>
+                            ` : ''}
+                            ${envelope.sender_email ? `
+                                <div class="detail-item">
+                                    <span class="detail-label">Sender:</span> ${envelope.sender_email}
+                                </div>
+                            ` : ''}
+                            ${envelope.created_at ? `
+                                <div class="detail-item">
+                                    <span class="detail-label">Created:</span> ${formatDate(envelope.created_at)}
+                                </div>
+                            ` : ''}
+                            ${envelope.sent_at ? `
+                                <div class="detail-item">
+                                    <span class="detail-label">Sent:</span> ${formatDate(envelope.sent_at)}
+                                </div>
+                            ` : ''}
+                            ${envelope.completed_at ? `
+                                <div class="detail-item">
+                                    <span class="detail-label">Completed:</span> ${formatDate(envelope.completed_at)}
+                                </div>
+                            ` : ''}
+                            ${envelope.updated_at ? `
+                                <div class="detail-item">
+                                    <span class="detail-label">Updated:</span> ${formatDate(envelope.updated_at)}
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            resultsDiv.innerHTML = html;
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return 'N/A';
+            const date = new Date(dateString);
+            return date.toLocaleString();
+        }
+    </script>
+</body>
 </html>

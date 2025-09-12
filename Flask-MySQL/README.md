@@ -121,7 +121,7 @@ curl http://localhost:5000/sync/status
 curl "http://localhost:5000/envelopes?status=completed"
 
 # Get envelopes awaiting customer signature
-curl "http://localhost:5000/envelopes?app_status=Awaiting Customer"
+curl "http://localhost:5000/envelopes?app_status=Awaiting%20Customer"
 
 # Get envelopes for a specific deal
 curl "http://localhost:5000/envelopes?deal=Deal123"
