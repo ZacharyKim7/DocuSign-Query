@@ -31,11 +31,30 @@ def list_envelopes():
     status = request.args.get("status")         # raw DocuSign status OR your app_status
     app_status = request.args.get("app_status")
     deal = request.args.get("deal")
+    date_field = request.args.get("date_field")
+    start_date = request.args.get("start_date")
+    end_date = request.args.get("end_date")
+    
     q = select(Envelope)
     clauses = []
+    
     if status: clauses.append(Envelope.status == status.lower())
     if app_status: clauses.append(Envelope.app_status == app_status)
     if deal: clauses.append(Envelope.deal_name == deal)
+    
+    # Date filtering
+    if date_field and (start_date or end_date):
+        # Get the appropriate date column
+        date_column = getattr(Envelope, date_field, None)
+        if date_column is not None:
+            if start_date:
+                start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                clauses.append(date_column >= start_datetime)
+            if end_date:
+                # End date should include the entire day, so add 1 day and use <
+                end_datetime = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=1)
+                clauses.append(date_column < end_datetime)
+    
     if clauses: q = q.where(and_(*clauses))
     with Session() as s:
         rows = s.execute(q.order_by(Envelope.updated_at.desc()).limit(200)).scalars().all()

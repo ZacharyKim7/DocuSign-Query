@@ -182,6 +182,28 @@
                 <input type="text" id="deal" name="deal" placeholder="Enter deal name">
             </div>
 
+            <div class="form-group">
+                <label for="date_field">Date Field:</label>
+                <select id="date_field" name="date_field">
+                    <option value="">No Date Filter</option>
+                    <option value="created_at">Created Date</option>
+                    <option value="sent_at">Sent Date</option>
+                    <option value="delivered_at">Delivered Date</option>
+                    <option value="completed_at">Completed Date</option>
+                    <option value="updated_at">Updated Date</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="start_date">Start Date:</label>
+                <input type="date" id="start_date" name="start_date">
+            </div>
+
+            <div class="form-group">
+                <label for="end_date">End Date:</label>
+                <input type="date" id="end_date" name="end_date">
+            </div>
+
             <button type="submit" class="search-btn">Search Envelopes</button>
         </form>
     </div>
