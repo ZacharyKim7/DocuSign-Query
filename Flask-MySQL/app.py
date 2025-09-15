@@ -69,6 +69,13 @@ def list_envelopes():
             "sent_at": e.sent_at.isoformat() if e.sent_at else None,
             "completed_at": e.completed_at.isoformat() if e.completed_at else None,
             "updated_at": e.updated_at.isoformat() if e.updated_at else None,
+            "recipients": [{
+                "name": r.name,
+                "email": r.email,
+                "role": r.role,
+                "routing_order": r.routing_order,
+                "status": r.recipient_status,
+            } for r in e.recipients] if e.recipients else []
         } for e in rows])
 
 @app.get("/envelopes/<envelope_id>")

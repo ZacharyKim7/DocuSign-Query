@@ -137,6 +137,60 @@
             color: #666;
             margin-top: 5px;
         }
+        .status-badge {
+            position: relative;
+            cursor: help;
+        }
+        .status-tooltip {
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #333;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s, visibility 0.2s;
+            margin-bottom: 5px;
+            min-width: 200px;
+            white-space: normal;
+            max-width: 300px;
+        }
+        .status-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 5px solid transparent;
+            border-top-color: #333;
+        }
+        .status-badge:hover .status-tooltip {
+            opacity: 1;
+            visibility: visible;
+        }
+        .recipient-item {
+            margin: 2px 0;
+            font-size: 11px;
+        }
+        .recipient-status {
+            font-weight: bold;
+            text-transform: capitalize;
+        }
+        .recipient-pending {
+            color: #ff9800;
+        }
+        .recipient-completed {
+            color: #4caf50;
+        }
+        .recipient-declined {
+            color: #f44336;
+        }
     </style>
 </head>
 <body>
@@ -294,6 +348,8 @@
             envelopes.forEach(envelope => {
                 const statusClass = `status-${envelope.status || 'unknown'}`;
                 
+                const tooltipContent = generateTooltipContent(envelope);
+                
                 html += `
                     <div class="envelope-card">
                         <div class="envelope-header">
@@ -302,7 +358,10 @@
                                 <div class="envelope-id">ID: ${envelope.envelopeId}</div>
                             </div>
                             <div>
-                                <span class="status-badge ${statusClass}">${envelope.status || 'Unknown'}</span>
+                                <span class="status-badge ${statusClass}">
+                                    ${envelope.status || 'Unknown'}
+                                    <div class="status-tooltip">${tooltipContent}</div>
+                                </span>
                                 ${envelope.app_status ? `<span class="status-badge" style="margin-left: 5px; background-color: #f0f0f0; color: #333;">${envelope.app_status}</span>` : ''}
                             </div>
                         </div>
@@ -349,6 +408,82 @@
             if (!dateString) return 'N/A';
             const date = new Date(dateString);
             return date.toLocaleString();
+        }
+
+        function generateTooltipContent(envelope) {
+            if (!envelope.recipients || envelope.recipients.length === 0) {
+                return 'No recipient information available';
+            }
+
+            // Sort recipients by routing order
+            const sortedRecipients = envelope.recipients.slice().sort((a, b) => (a.routing_order || 999) - (b.routing_order || 999));
+            
+            let content = '<div style="text-align: left;">';
+            content += '<strong>Signature Status:</strong><br>';
+            
+            const pendingRecipients = [];
+            const completedRecipients = [];
+            const declinedRecipients = [];
+            
+            sortedRecipients.forEach(recipient => {
+                const status = recipient.status || 'unknown';
+                const name = recipient.name || 'Unknown';
+                const email = recipient.email || '';
+                const role = recipient.role || '';
+                
+                const recipientInfo = {
+                    name: name,
+                    email: email,
+                    role: role,
+                    status: status,
+                    routing_order: recipient.routing_order || 999
+                };
+                
+                if (status === 'completed') {
+                    completedRecipients.push(recipientInfo);
+                } else if (status === 'declined') {
+                    declinedRecipients.push(recipientInfo);
+                } else {
+                    pendingRecipients.push(recipientInfo);
+                }
+            });
+            
+            // Show pending signatures first
+            if (pendingRecipients.length > 0) {
+                content += '<div style="margin-bottom: 8px;"><strong style="color: #ff9800;">⏳ Awaiting Signatures:</strong></div>';
+                pendingRecipients.forEach(recipient => {
+                    content += `<div class="recipient-item">
+                        <span class="recipient-status recipient-pending">${recipient.status}</span> - 
+                        ${recipient.name} (${recipient.email})
+                        ${recipient.role ? `<br>&nbsp;&nbsp;&nbsp;Role: ${recipient.role}` : ''}
+                    </div>`;
+                });
+            }
+            
+            // Show completed signatures
+            if (completedRecipients.length > 0) {
+                content += '<div style="margin-bottom: 8px; margin-top: 8px;"><strong style="color: #4caf50;">✅ Completed:</strong></div>';
+                completedRecipients.forEach(recipient => {
+                    content += `<div class="recipient-item">
+                        <span class="recipient-status recipient-completed">${recipient.status}</span> - 
+                        ${recipient.name} (${recipient.email})
+                    </div>`;
+                });
+            }
+            
+            // Show declined signatures
+            if (declinedRecipients.length > 0) {
+                content += '<div style="margin-bottom: 8px; margin-top: 8px;"><strong style="color: #f44336;">❌ Declined:</strong></div>';
+                declinedRecipients.forEach(recipient => {
+                    content += `<div class="recipient-item">
+                        <span class="recipient-status recipient-declined">${recipient.status}</span> - 
+                        ${recipient.name} (${recipient.email})
+                    </div>`;
+                });
+            }
+            
+            content += '</div>';
+            return content;
         }
     </script>
 </body>
