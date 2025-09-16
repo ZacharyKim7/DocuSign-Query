@@ -6,6 +6,7 @@ from sqlalchemy.engine import URL
 from models import Base, Envelope, SyncLog
 from map import upsert_envelope
 from docusign_client import get_docusign_client, fetch_envelopes, fetch_envelopes_since
+from docusign_esign.apis import EnvelopesApi
 from datetime import datetime, timedelta, timezone
 import os
 
@@ -215,6 +216,84 @@ def sync_envelopes():
         except:
             pass  # Don't fail the response if we can't log the error
         
+        return jsonify({"error": str(e)}), 500
+
+@app.get("/envelopes/custom-fields")
+def inspect_custom_fields():
+    """Inspect custom field names from recent envelopes to help identify deal name field."""
+    try:
+        # Get DocuSign client
+        api_client, account_id, _ = get_docusign_client()
+        
+        with Session() as session:
+            # Get a sample of recent envelopes (last 10) to inspect custom fields
+            recent_envelopes = session.execute(
+                select(Envelope)
+                .order_by(Envelope.updated_at.desc())
+                .limit(10)
+            ).scalars().all()
+            
+            if not recent_envelopes:
+                return jsonify({"message": "No envelopes found to inspect"})
+            
+            custom_fields_found = {}
+            envelope_samples = []
+            
+            # Fetch detailed envelope data from DocuSign API to see custom fields
+            envelopes_api = EnvelopesApi(api_client)
+            
+            for envelope in recent_envelopes[:5]:  # Just check first 5 to avoid rate limits
+                try:
+                    detailed_envelope = envelopes_api.get_envelope(
+                        account_id=account_id,
+                        envelope_id=envelope.id,
+                        include="custom_fields"
+                    )
+                    
+                    envelope_info = {
+                        "envelope_id": envelope.id,
+                        "subject": envelope.subject,
+                        "current_deal_name": envelope.deal_name,
+                        "custom_fields": []
+                    }
+                    
+                    if detailed_envelope.custom_fields and detailed_envelope.custom_fields.text_custom_fields:
+                        for cf in detailed_envelope.custom_fields.text_custom_fields:
+                            field_name = cf.name
+                            field_value = cf.value
+                            
+                            envelope_info["custom_fields"].append({
+                                "name": field_name,
+                                "value": field_value
+                            })
+                            
+                            # Track all unique custom field names we've seen
+                            if field_name not in custom_fields_found:
+                                custom_fields_found[field_name] = []
+                            custom_fields_found[field_name].append({
+                                "envelope_id": envelope.id,
+                                "value": field_value
+                            })
+                    
+                    envelope_samples.append(envelope_info)
+                    
+                except Exception as e:
+                    envelope_samples.append({
+                        "envelope_id": envelope.id,
+                        "error": f"Could not fetch custom fields: {str(e)}"
+                    })
+            
+            return jsonify({
+                "summary": {
+                    "total_unique_custom_fields": len(custom_fields_found),
+                    "custom_field_names": list(custom_fields_found.keys()),
+                    "currently_mapping_to_deal_name": ["deal", "deal_name", "dealname"]
+                },
+                "custom_fields_analysis": custom_fields_found,
+                "envelope_samples": envelope_samples
+            })
+            
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @app.get("/sync/status")
