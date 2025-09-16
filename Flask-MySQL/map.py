@@ -17,12 +17,49 @@ def upsert_envelope(session: Session, item: dict):
     env.delivered_at = iso2dt(item.get("deliveredDateTime"))
     env.completed_at = iso2dt(item.get("completedDateTime"))
 
-    # deal_name from customFields (textCustomFields) or from your app’s metadata
+    # deal_name from customFields (textCustomFields) or from your app's metadata
     deal_name = None
     cf = item.get("customFields") or {}
     for t in (cf.get("textCustomFields") or []):
-        if t.get("name","").lower() in {"deal","deal_name","dealname"}:
-            deal_name = t.get("value"); break
+        field_name = t.get("name","").lower()
+        field_value = t.get("value","").strip()
+        
+        # Check for traditional deal name fields
+        if field_name in {"deal","deal_name","dealname"} and field_value:
+            deal_name = field_value
+            break
+        
+        # Check for envelopeTypes field as potential deal categorization
+        if field_name == "envelopetypes" and field_value:
+            deal_name = field_value
+            break
+            
+        # Check for custom field with actual content
+        if field_name == "custom field" and field_value:
+            deal_name = field_value
+            break
+    
+    # If no custom field deal name found, try to extract from subject line
+    if not deal_name:
+        subject = item.get("emailSubject", "") or ""
+        # Look for common patterns in subjects like "Company Name" followed by specific indicators
+        import re
+        
+        # Pattern to extract deal names from subjects like "Angiex Subscription", "Angiex Consent", etc.
+        patterns = [
+            r'(Angiex)',  # Direct company name match
+            r'Complete with Docusign:\s*([^-:]+?)(?:\s*-|\s*:)',  # Extract from "Complete with Docusign: Company Name -"
+            r':\s*([A-Z][a-zA-Z\s]+?)(?:\s*-|\s*Subscription|\s*Consent|\s*Form)',  # Extract company from various formats
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, subject, re.IGNORECASE)
+            if match:
+                potential_deal = match.group(1).strip()
+                if len(potential_deal) > 2 and not potential_deal.lower() in {'complete', 'docusign', 'with'}:
+                    deal_name = potential_deal
+                    break
+    
     env.deal_name = deal_name
 
     # recipients

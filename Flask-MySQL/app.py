@@ -79,6 +79,84 @@ def list_envelopes():
             } for r in e.recipients] if e.recipients else []
         } for e in rows])
 
+@app.get("/envelopes/custom-fields")
+def inspect_custom_fields():
+    """Inspect custom field names from recent envelopes to help identify deal name field."""
+    try:
+        # Get DocuSign client
+        api_client, account_id, _ = get_docusign_client()
+        
+        with Session() as session:
+            # Get a sample of recent envelopes (last 10) to inspect custom fields
+            recent_envelopes = session.execute(
+                select(Envelope)
+                .order_by(Envelope.updated_at.desc())
+                .limit(10)
+            ).scalars().all()
+            
+            if not recent_envelopes:
+                return jsonify({"message": "No envelopes found to inspect"})
+            
+            custom_fields_found = {}
+            envelope_samples = []
+            
+            # Fetch detailed envelope data from DocuSign API to see custom fields
+            envelopes_api = EnvelopesApi(api_client)
+            
+            for envelope in recent_envelopes[:5]:  # Just check first 5 to avoid rate limits
+                try:
+                    detailed_envelope = envelopes_api.get_envelope(
+                        account_id=account_id,
+                        envelope_id=envelope.id,
+                        include="custom_fields"
+                    )
+                    
+                    envelope_info = {
+                        "envelope_id": envelope.id,
+                        "subject": envelope.subject,
+                        "current_deal_name": envelope.deal_name,
+                        "custom_fields": []
+                    }
+                    
+                    if detailed_envelope.custom_fields and detailed_envelope.custom_fields.text_custom_fields:
+                        for cf in detailed_envelope.custom_fields.text_custom_fields:
+                            field_name = cf.name
+                            field_value = cf.value
+                            
+                            envelope_info["custom_fields"].append({
+                                "name": field_name,
+                                "value": field_value
+                            })
+                            
+                            # Track all unique custom field names we've seen
+                            if field_name not in custom_fields_found:
+                                custom_fields_found[field_name] = []
+                            custom_fields_found[field_name].append({
+                                "envelope_id": envelope.id,
+                                "value": field_value
+                            })
+                    
+                    envelope_samples.append(envelope_info)
+                    
+                except Exception as e:
+                    envelope_samples.append({
+                        "envelope_id": envelope.id,
+                        "error": f"Could not fetch custom fields: {str(e)}"
+                    })
+            
+            return jsonify({
+                "summary": {
+                    "total_unique_custom_fields": len(custom_fields_found),
+                    "custom_field_names": list(custom_fields_found.keys()),
+                    "currently_mapping_to_deal_name": ["deal", "deal_name", "dealname"]
+                },
+                "custom_fields_analysis": custom_fields_found,
+                "envelope_samples": envelope_samples
+            })
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.get("/envelopes/<envelope_id>")
 def get_envelope(envelope_id):
     """Get detailed information about a specific envelope."""
@@ -218,79 +296,97 @@ def sync_envelopes():
         
         return jsonify({"error": str(e)}), 500
 
-@app.get("/envelopes/custom-fields")
-def inspect_custom_fields():
-    """Inspect custom field names from recent envelopes to help identify deal name field."""
+@app.post("/envelopes/deals/refresh-deal-names")
+def refresh_deal_names():
+    """Re-sync existing envelopes to refresh deal name extraction with new logic."""
     try:
         # Get DocuSign client
         api_client, account_id, _ = get_docusign_client()
         
         with Session() as session:
-            # Get a sample of recent envelopes (last 10) to inspect custom fields
-            recent_envelopes = session.execute(
+            # Get recent envelopes that don't have deal names
+            envelopes_to_update = session.execute(
                 select(Envelope)
+                .where(Envelope.deal_name.is_(None))
                 .order_by(Envelope.updated_at.desc())
-                .limit(10)
+                .limit(20)
             ).scalars().all()
             
-            if not recent_envelopes:
-                return jsonify({"message": "No envelopes found to inspect"})
+            if not envelopes_to_update:
+                return jsonify({"message": "No envelopes found without deal names"})
             
-            custom_fields_found = {}
-            envelope_samples = []
+            updated_count = 0
+            results = []
             
-            # Fetch detailed envelope data from DocuSign API to see custom fields
+            # Fetch detailed envelope data and re-process with new deal name logic
             envelopes_api = EnvelopesApi(api_client)
             
-            for envelope in recent_envelopes[:5]:  # Just check first 5 to avoid rate limits
+            for envelope in envelopes_to_update:
                 try:
                     detailed_envelope = envelopes_api.get_envelope(
                         account_id=account_id,
                         envelope_id=envelope.id,
-                        include="custom_fields"
+                        include="recipients,custom_fields"
                     )
                     
-                    envelope_info = {
-                        "envelope_id": envelope.id,
-                        "subject": envelope.subject,
-                        "current_deal_name": envelope.deal_name,
-                        "custom_fields": []
+                    # Convert to dict format compatible with upsert_envelope
+                    envelope_data = {
+                        "envelopeId": detailed_envelope.envelope_id,
+                        "emailSubject": detailed_envelope.email_subject,
+                        "status": detailed_envelope.status,
+                        "createdDateTime": detailed_envelope.created_date_time,
+                        "sentDateTime": detailed_envelope.sent_date_time,
+                        "deliveredDateTime": detailed_envelope.delivered_date_time,
+                        "completedDateTime": detailed_envelope.completed_date_time,
+                        "sender": {"email": getattr(detailed_envelope.sender, 'email', None)},
+                        "customFields": {
+                            "textCustomFields": [
+                                {"name": cf.name, "value": cf.value}
+                                for cf in (detailed_envelope.custom_fields.text_custom_fields or [])
+                            ] if detailed_envelope.custom_fields else []
+                        },
+                        "recipients": {
+                            "signers": [
+                                {
+                                    "email": r.email,
+                                    "name": r.name,
+                                    "status": r.status,
+                                    "routingOrder": str(r.routing_order),
+                                    "roleName": r.role_name
+                                }
+                                for r in (detailed_envelope.recipients.signers or [])
+                            ] if detailed_envelope.recipients else []
+                        }
                     }
                     
-                    if detailed_envelope.custom_fields and detailed_envelope.custom_fields.text_custom_fields:
-                        for cf in detailed_envelope.custom_fields.text_custom_fields:
-                            field_name = cf.name
-                            field_value = cf.value
-                            
-                            envelope_info["custom_fields"].append({
-                                "name": field_name,
-                                "value": field_value
-                            })
-                            
-                            # Track all unique custom field names we've seen
-                            if field_name not in custom_fields_found:
-                                custom_fields_found[field_name] = []
-                            custom_fields_found[field_name].append({
-                                "envelope_id": envelope.id,
-                                "value": field_value
-                            })
+                    # Use updated mapping logic
+                    upsert_envelope(session, envelope_data)
                     
-                    envelope_samples.append(envelope_info)
+                    # Get the updated envelope to see the new deal name
+                    updated_envelope = session.get(Envelope, envelope.id)
                     
-                except Exception as e:
-                    envelope_samples.append({
+                    results.append({
                         "envelope_id": envelope.id,
-                        "error": f"Could not fetch custom fields: {str(e)}"
+                        "subject": envelope.subject,
+                        "old_deal_name": None,
+                        "new_deal_name": updated_envelope.deal_name,
+                        "extracted_from": "subject_line" if updated_envelope.deal_name else "none"
+                    })
+                    
+                    if updated_envelope.deal_name:
+                        updated_count += 1
+                        
+                except Exception as e:
+                    results.append({
+                        "envelope_id": envelope.id,
+                        "error": f"Could not update: {str(e)}"
                     })
             
+            session.commit()
+            
             return jsonify({
-                "summary": {
-                    "total_unique_custom_fields": len(custom_fields_found),
-                    "custom_field_names": list(custom_fields_found.keys()),
-                    "currently_mapping_to_deal_name": ["deal", "deal_name", "dealname"]
-                },
-                "custom_fields_analysis": custom_fields_found,
-                "envelope_samples": envelope_samples
+                "message": f"Updated {updated_count} envelopes with deal names",
+                "results": results
             })
             
     except Exception as e:
