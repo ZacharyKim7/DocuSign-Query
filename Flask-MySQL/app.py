@@ -32,6 +32,7 @@ def list_envelopes():
     status = request.args.get("status")         # raw DocuSign status OR your app_status
     app_status = request.args.get("app_status")
     deal = request.args.get("deal")
+    search = request.args.get("search")         # New: full-text search across deal_name and subject
     date_field = request.args.get("date_field")
     start_date = request.args.get("start_date")
     end_date = request.args.get("end_date")
@@ -42,6 +43,15 @@ def list_envelopes():
     if status: clauses.append(Envelope.status == status.lower())
     if app_status: clauses.append(Envelope.app_status == app_status)
     if deal: clauses.append(Envelope.deal_name == deal)
+    if search:
+        # Search across both deal_name and subject for maximum flexibility
+        from sqlalchemy import or_, func
+        search_term = f"%{search}%"
+        clauses.append(or_(
+            Envelope.deal_name.ilike(search_term),
+            Envelope.subject.ilike(search_term),
+            Envelope.sender_email.ilike(search_term)
+        ))
     
     # Date filtering
     if date_field and (start_date or end_date):
