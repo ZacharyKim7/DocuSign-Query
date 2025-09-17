@@ -35,6 +35,13 @@ pip install -r requirements.txt
 
 ### 3. Configuration
 
+Create the MySQL database (will need to be installed separately; cannot be installed with pip):
+```
+mysql> CREATE DATABASE docusign_db
+  -> CHARACTER SET utf8mb4
+  -> COLLATE utf8mb4_unicode_ci;
+```
+
 Copy the example environment file and configure your credentials:
 
 ```bash
@@ -47,14 +54,10 @@ Edit `.env` with your settings:
 # DocuSign API Configuration
 INTEGRATION_KEY=your_docusign_integration_key
 USER_ID=your_docusign_user_id
-RSA_KEY=path/to/private.key
-DOCUSIGN_DEMO=true
+RSA_KEY=rsa_private_key
+DOCUSIGN_DEMO=false
 
-# Database Configuration
 DATABASE_URL=mysql+pymysql://username:password@localhost/docusign_db
-
-# Optional: DocuSign Connect webhook HMAC key
-DOCUSIGN_WEBHOOK_HMAC_KEY=your_webhook_hmac_key
 ```
 
 ### 4. Database Setup
