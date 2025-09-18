@@ -1,3 +1,7 @@
-docusign_esign
+flask
+sqlalchemy
+pymysql
+docusign-esign
+pyjwt
 requests
-dotenv
+python-dotenv

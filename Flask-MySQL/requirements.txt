@@ -1,7 +1,0 @@
-flask
-sqlalchemy
-pymysql
-docusign-esign
-pyjwt
-requests
-python-dotenv
