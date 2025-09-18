@@ -12,8 +12,14 @@ A Python Flask API that integrates with DocuSign to:
 - **Manual & Automated Sync**: On-demand sync via API or automated periodic sync script
 - **Database Storage**: MySQL database with envelope, recipient, and sync tracking
 - **REST API**: Query endpoints with filtering, stats, and detailed envelope information
+- **Web Interface**: User-friendly HTML interface for searching and viewing envelopes
+- **Advanced Search**: Full-text search across deal names, subjects, and sender emails
+- **Date Range Filtering**: Filter envelopes by various date fields (created, sent, delivered, completed, updated)
+- **Recipient Status Tracking**: Detailed recipient information with hover tooltips showing signature status
+- **Deal Name Extraction**: Intelligent extraction of deal names from custom fields and subject lines
 - **Sync History**: Track sync history, status, and error logging
 - **Custom Status Mapping**: Application-specific status derived from DocuSign statuses
+- **Production Support**: Easy switching between demo and production DocuSign environments
 
 ## Quick Start
 
@@ -74,15 +80,23 @@ The API will be available at `http://localhost:5000`
 
 ## API Endpoints
 
+### Web Interface
+
+- **GET /** - Main web interface for searching and viewing envelopes
+
 ### Envelope Querying
 
-- **GET /envelopes** - List envelopes with optional filtering
+- **GET /envelopes** - List envelopes with optional filtering (limit: 500 results)
   - Query parameters:
     - `status`: DocuSign status (sent, completed, etc.)
     - `app_status`: Application status (Awaiting Customer, Completed, etc.)
-    - `deal`: Filter by deal name
-- **GET /envelopes/{envelope_id}** - Get detailed envelope information
-- **GET /envelopes/stats** - Get envelope statistics
+    - `search`: Full-text search across deal names, subjects, and sender emails
+    - `date_field`: Date field to filter by (created_at, sent_at, delivered_at, completed_at, updated_at)
+    - `start_date`: Start date for filtering (YYYY-MM-DD format)
+    - `end_date`: End date for filtering (YYYY-MM-DD format)
+- **GET /envelopes/{envelope_id}** - Get detailed envelope information including recipients
+- **GET /envelopes/stats** - Get envelope statistics and counts
+- **GET /envelopes/custom-fields** - Inspect custom field names from recent envelopes
 
 ### Data Synchronization
 
@@ -92,6 +106,10 @@ The API will be available at `http://localhost:5000`
     - `{"days_back": 7}` - Sync from specific days back
     - `{"force_full_sync": true}` - Full sync (last 30 days)
 - **GET /sync/status** - Get sync status and history
+
+### Deal Name Management
+
+- **POST /envelopes/deals/refresh-deal-names** - Re-process existing envelopes to extract deal names using updated logic
 
 ## Example Usage
 
@@ -126,8 +144,20 @@ curl "http://localhost:5000/envelopes?status=completed"
 # Get envelopes awaiting customer signature
 curl "http://localhost:5000/envelopes?app_status=Awaiting%20Customer"
 
-# Get envelopes for a specific deal
-curl "http://localhost:5000/envelopes?deal=Deal123"
+# Search for envelopes containing "Angiex" in deal name, subject, or sender
+curl "http://localhost:5000/envelopes?search=Angiex"
+
+# Search for Vision-related envelopes
+curl "http://localhost:5000/envelopes?search=Vision"
+
+# Get envelopes sent in the last week
+curl "http://localhost:5000/envelopes?date_field=sent_at&start_date=2025-09-11&end_date=2025-09-18"
+
+# Get envelopes completed in September 2025
+curl "http://localhost:5000/envelopes?date_field=completed_at&start_date=2025-09-01&end_date=2025-09-30"
+
+# Combined search: Vision envelopes that are completed
+curl "http://localhost:5000/envelopes?search=Vision&status=completed"
 ```
 
 ### Get Statistics
@@ -135,6 +165,88 @@ curl "http://localhost:5000/envelopes?deal=Deal123"
 ```bash
 curl http://localhost:5000/envelopes/stats
 ```
+
+### Analyze Custom Fields
+
+```bash
+# Inspect custom field names to understand deal name sources
+curl http://localhost:5000/envelopes/custom-fields
+```
+
+### Deal Name Management
+
+```bash
+# Refresh deal name extraction for existing envelopes
+curl -X POST http://localhost:5000/envelopes/deals/refresh-deal-names
+```
+
+## Web Interface
+
+The application includes a user-friendly web interface accessible at `http://localhost:5000`. Features include:
+
+### Search and Filtering
+- **Universal Search**: Single search field that searches across deal names, subjects, and sender emails
+- **Status Filtering**: Filter by DocuSign status (sent, completed, etc.) and application status
+- **Date Range Filtering**: Filter by any date field with start/end date pickers
+- **Real-time Results**: Instant search results without page reload
+
+### Envelope Display
+- **Card-based Layout**: Clean, organized display of envelope information
+- **Hover Tooltips**: Hover over status badges to see detailed recipient signature status
+- **Signature Tracking**: Visual indicators showing who has signed and who is pending
+- **Responsive Design**: Works on desktop, tablet, and mobile devices
+
+### Key Features
+- **Recipient Status Details**: See who needs to sign, who has completed, and who declined
+- **Deal Name Highlighting**: Automatically extracted deal names prominently displayed
+- **Statistics Dashboard**: Real-time counts of envelopes by status
+- **Flexible Layout**: Responsive grid that adapts to content and screen size
+
+## Deal Name Extraction
+
+The system intelligently extracts deal names from multiple sources:
+
+### Custom Fields
+- Checks for traditional deal name fields: `deal`, `deal_name`, `dealname`
+- Uses `envelopeTypes` field for categorization (consent, purchase, investment, etc.)
+- Configurable field mapping in `map.py`
+
+### Subject Line Patterns
+- Extracts company names like "Angiex", "Vision", "Morgan Mutual"
+- Handles various subject formats:
+  - "Complete with DocuSign: Company Name"
+  - "Name: Company Action"
+  - "FINAL APPROVAL: Company / Client"
+  - Direct company name matches
+
+### Configuration
+To add new deal name sources, update the `DEAL_NAME_FIELD_MAPPINGS` in `map.py`:
+
+```python
+DEAL_NAME_FIELD_MAPPINGS = {
+    "your_custom_field": "direct_value",
+    "another_field": "category_value",
+}
+```
+
+## Environment Configuration
+
+### Switching Between Demo and Production
+
+To switch from DocuSign demo to production:
+
+```env
+# For Demo Environment
+DOCUSIGN_DEMO=true
+
+# For Production Environment  
+DOCUSIGN_DEMO=false
+```
+
+Make sure to update your credentials accordingly:
+- Use production Integration Key
+- Use production User ID
+- Use production RSA private key
 
 ## Database Schema
 
@@ -233,10 +345,12 @@ This will test all API endpoints and verify the integration is working correctly
 
 ```
 Flask-MySQL/
-├── app.py                 # Main Flask application
+├── app.py                 # Main Flask application with web interface and API endpoints
 ├── models.py             # Database models (Envelope, Recipient, SyncLog)
-├── map.py                # Data mapping functions
+├── map.py                # Data mapping and deal name extraction functions
 ├── docusign_client.py    # DocuSign API client with listStatusChanges
+├── Templates/
+│   └── index.html        # Web interface with search, filtering, and envelope display
 ├── periodic_sync.py      # Automated sync script for cron/scheduler
 ├── test_integration.py   # Integration tests
 ├── requirements.txt      # Python dependencies
