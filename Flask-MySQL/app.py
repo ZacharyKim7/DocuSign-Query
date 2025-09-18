@@ -66,7 +66,7 @@ def list_envelopes():
     
     if clauses: q = q.where(and_(*clauses))
     with Session() as s:
-        rows = s.execute(q.order_by(Envelope.updated_at.desc()).limit(200)).scalars().all()
+        rows = s.execute(q.order_by(Envelope.updated_at.desc()).limit(500)).scalars().all()
         return jsonify([{
             "envelopeId": e.id,
             "subject": e.subject,
