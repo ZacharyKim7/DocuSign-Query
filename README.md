@@ -1,13 +1,13 @@
 # DocuSign Envelope Query API
 
-## Demo
-![Demo](https://github.com/user-attachments/assets/83a90cdc-2002-4f9b-b51d-b44d25031996)
-
 A Python Flask API that integrates with DocuSign to:
 - Pull envelope data from the DocuSign API using `listStatusChanges`
 - Store envelope information in a MySQL database with incremental sync tracking
 - Provide REST endpoints to query envelope data
 - Support both manual and automated periodic syncing
+
+## Demo
+![Demo](https://github.com/user-attachments/assets/83a90cdc-2002-4f9b-b51d-b44d25031996)
 
 ## Features
 
