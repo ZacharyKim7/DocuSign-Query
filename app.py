@@ -436,6 +436,98 @@ def sync_status():
             } for sync in recent_syncs]
         })
 
+def sync_on_startup():
+    """Sync envelopes on app startup if none exist or last sync is old."""
+    try:
+        with Session() as session:
+            # Check if we have any envelopes
+            envelope_count = session.execute(select(func.count(Envelope.id))).scalar()
+
+            # Check last sync time
+            last_sync = session.execute(
+                select(SyncLog)
+                .where(SyncLog.sync_type == "envelope_sync")
+                .where(SyncLog.sync_status == "success")
+                .order_by(SyncLog.last_sync_date.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+
+            should_sync = False
+            sync_reason = ""
+
+            if envelope_count == 0:
+                should_sync = True
+                sync_reason = "No envelopes found in database"
+            elif not last_sync:
+                should_sync = True
+                sync_reason = "No successful sync found in logs"
+            elif last_sync:
+                # Check if last sync is older than 1 day
+                # Ensure both datetimes are timezone-aware for comparison
+                now_utc = datetime.now(timezone.utc)
+                last_sync_date = last_sync.last_sync_date
+
+                # If last_sync_date is naive, assume it's UTC
+                if last_sync_date.tzinfo is None:
+                    last_sync_date = last_sync_date.replace(tzinfo=timezone.utc)
+
+                time_since_sync = now_utc - last_sync_date
+                if time_since_sync.total_seconds() > 86400:  # 24 hours
+                    should_sync = True
+                    sync_reason = f"Last sync was {time_since_sync.days} days ago"
+
+            if should_sync:
+                print(f"🔄 Starting startup sync: {sync_reason}")
+
+                # Get DocuSign client
+                api_client, account_id, _ = get_docusign_client()
+
+                # Default to 30 days for initial sync
+                from_date = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+                envelopes = fetch_envelopes_since(api_client, account_id, from_date)
+
+                # Store envelopes
+                for envelope_data in envelopes:
+                    upsert_envelope(session, envelope_data)
+
+                # Record sync log
+                sync_date = datetime.now(timezone.utc)
+                sync_log = SyncLog(
+                    sync_type="envelope_sync",
+                    last_sync_date=sync_date,
+                    envelopes_synced=len(envelopes),
+                    sync_status="success"
+                )
+                session.add(sync_log)
+                session.commit()
+
+                print(f"✅ Startup sync completed: {len(envelopes)} envelopes synced")
+            else:
+                print("ℹ️ Skipping startup sync: database is up to date")
+
+    except Exception as e:
+        print(f"❌ Startup sync failed: {str(e)}")
+        # Don't crash the app on startup sync failure
+        try:
+            with Session() as session:
+                sync_log = SyncLog(
+                    sync_type="envelope_sync",
+                    last_sync_date=datetime.now(timezone.utc),
+                    envelopes_synced=0,
+                    sync_status="error",
+                    error_message=str(e)[:500]
+                )
+                session.add(sync_log)
+                session.commit()
+        except:
+            pass
+
 if __name__ == "__main__":
+    # Import func for startup sync
+    from sqlalchemy import func
+
+    # Sync on startup
+    sync_on_startup()
+
     app.run(host="127.0.0.1", port=5000, debug=True)
 

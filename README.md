@@ -32,8 +32,18 @@ A Python Flask API that integrates with DocuSign to:
 ### 2. Installation
 
 ```bash
-# Clone and navigate to the Flask-MySQL directory
-cd Flask-MySQL
+# Create a python virtual environment (its named .venv here but you can choose your own name):
+\DocuSign-Query>python -m venv .venv
+```
+
+```bash
+# Activate the venv (you will need scripts activated to activate in PowerShell; alternatively, activate in a cmd):
+.venv\Scripts\activate
+```
+
+```bash
+# Clone and ensure you are in the DocuSign-Query directory
+cd DocuSign-Query
 
 # Install dependencies
 pip install -r requirements.txt
@@ -42,19 +52,20 @@ pip install -r requirements.txt
 ### 3. Configuration
 
 Create the MySQL database (will need to be installed separately; cannot be installed with pip):
+
+Sign in with the root user (this is only required for the database setup, and is used in case of an access denied issue):
+```
+mysql -u root -p
+```
+
+Then create the database:
 ```
 mysql> CREATE DATABASE docusign_db
   -> CHARACTER SET utf8mb4
   -> COLLATE utf8mb4_unicode_ci;
 ```
 
-Copy the example environment file and configure your credentials:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your settings:
+Create a .env file in the root directory and then edit `.env` with your settings:
 
 ```env
 # DocuSign API Configuration
@@ -63,7 +74,12 @@ USER_ID=your_docusign_user_id
 RSA_KEY=rsa_private_key
 DOCUSIGN_DEMO=false
 
-DATABASE_URL=mysql+pymysql://username:password@localhost/docusign_db
+DATABASE_URL="mysql+pymysql://username:password@127.0.0.1:3306/docusign_db?charset=utf8mb4"
+
+# Flask Configuration
+FLASK_ENV=development
+FLASK_DEBUG=1
+FLASK_BASE_URL=http://localhost:5000
 ```
 
 ### 4. Database Setup
@@ -73,7 +89,7 @@ The application will automatically create the necessary database tables when it 
 ### 5. Running the Application
 
 ```bash
-python app.py
+\DocuSign-Query>python app.py  # Note that the first startup will take a while to pull all DocuSign envelopes.
 ```
 
 The API will be available at `http://localhost:5000`
